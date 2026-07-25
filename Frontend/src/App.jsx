@@ -130,7 +130,7 @@ function Login({ onLogin }) {
         method: 'POST',
         body: JSON.stringify(form),
       })
-      onLogin(response.data)
+      await onLogin(response.data)
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -1083,10 +1083,18 @@ function App() {
     return () => window.clearInterval(interval)
   }, [runningTimer])
 
-  function handleLogin(data) {
-    setUsername(data.username)
-    setAuthenticated(true)
-    setAuthenticationChecked(true)
+  async function handleLogin() {
+    try {
+      const response = await apiRequest('/api/auth/me')
+      setUsername(response.data.username || '')
+      setAuthenticated(true)
+      setAuthenticationChecked(true)
+    } catch (error) {
+      clearSession()
+      if (error.status === 401 || error.status === 403)
+        throw new Error('Login succeeded, but the browser blocked the authentication cookie. Allow cross-site cookies or use app and API domains under the same site.', { cause: error })
+      throw error
+    }
   }
 
   function projectSaved(project) {
