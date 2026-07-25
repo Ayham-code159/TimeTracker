@@ -20,7 +20,7 @@ different origins on the same site, also configure:
 
 ```text
 Cors__AllowedOrigins__0=https://app.example.com
-VITE_API_BASE_URL=https://api.example.com
+VITE_API_BASE_URL=https://timetracker-production-0fdf.up.railway.app
 ```
 
 Build `VITE_API_BASE_URL` into the frontend. Authentication uses an HttpOnly,

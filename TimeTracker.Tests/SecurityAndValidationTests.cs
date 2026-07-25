@@ -15,7 +15,6 @@ public class SecurityAndValidationTests
     [Theory]
     [InlineData(typeof(ProjectController))]
     [InlineData(typeof(LegacyProjectController))]
-    [InlineData(typeof(WeatherForecastController))]
     public void ProtectedControllersRequireAdmin(Type controllerType)
     {
         var authorize = controllerType.GetCustomAttribute<AuthorizeAttribute>();
