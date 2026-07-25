@@ -3,7 +3,6 @@ import { HexColorPicker } from 'react-colorful'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import './App.css'
 
-const USER_KEY = 'timeTrackerUsername'
 const PAGE_SIZE = 10
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
@@ -986,8 +985,9 @@ function Statistics({ projects, entries, runningTimer, elapsed }) {
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(Boolean(localStorage.getItem(USER_KEY)))
-  const [username, setUsername] = useState(localStorage.getItem(USER_KEY) || '')
+  const [authenticated, setAuthenticated] = useState(false)
+  const [authenticationChecked, setAuthenticationChecked] = useState(false)
+  const [username, setUsername] = useState('')
   const [page, setPage] = useState('dashboard')
   const [projects, setProjects] = useState([])
   const [entries, setEntries] = useState([])
@@ -1000,8 +1000,8 @@ function App() {
   const [actionEntryId, setActionEntryId] = useState(null)
 
   const clearSession = useCallback(() => {
-    localStorage.removeItem(USER_KEY)
     setAuthenticated(false)
+    setUsername('')
     setProjects([])
     setEntries([])
     setLegacyProjects({ Clockify: [], TogglTrack: [] })
@@ -1017,39 +1017,66 @@ function App() {
     clearSession()
   }, [clearSession])
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal) => {
     if (!authenticated) return
     setLoading(true)
     try {
       const [projectResponse, entryResponse, clockifyResponse, togglResponse] = await Promise.all([
-        apiRequest('/api/projects'),
-        apiRequest('/api/projects/time-entries'),
-        apiRequest('/api/legacy-projects/Clockify'),
-        apiRequest('/api/legacy-projects/TogglTrack'),
+        apiRequest('/api/projects', { signal }),
+        apiRequest('/api/projects/time-entries', { signal }),
+        apiRequest('/api/legacy-projects/Clockify', { signal }),
+        apiRequest('/api/legacy-projects/TogglTrack', { signal }),
       ])
+      if (signal?.aborted) return
       setProjects(projectResponse.data || [])
       setEntries(entryResponse.data || [])
       setLegacyProjects({ Clockify: clockifyResponse.data || [], TogglTrack: togglResponse.data || [] })
       try {
-        const timerResponse = await apiRequest('/api/projects/timer/running')
+        const timerResponse = await apiRequest('/api/projects/timer/running', { signal })
+        if (signal?.aborted) return
         setRunningTimer(timerResponse.data)
         setElapsed(timerResponse.data.elapsedSeconds)
       } catch (error) {
+        if (error.name === 'AbortError') return
         if (error.status === 401) throw error
         setRunningTimer(null)
       }
     } catch (error) {
+      if (error.name === 'AbortError') return
       if (error.status === 401 || error.status === 403) clearSession()
       else setNotice(error.message)
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [authenticated, clearSession])
 
   useEffect(() => {
-    const timeout = window.setTimeout(loadData, 0)
-    return () => window.clearTimeout(timeout)
-  }, [loadData])
+    const controller = new AbortController()
+    async function checkAuthentication() {
+      try {
+        const response = await apiRequest('/api/auth/me', { signal: controller.signal })
+        setUsername(response.data.username || '')
+        setAuthenticated(true)
+      } catch (error) {
+        if (error.name !== 'AbortError' && error.status !== 401 && error.status !== 403)
+          setNotice(error.message)
+      } finally {
+        if (!controller.signal.aborted) setAuthenticationChecked(true)
+      }
+    }
+    void checkAuthentication()
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!authenticationChecked || !authenticated) return undefined
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => void loadData(controller.signal), 0)
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [authenticationChecked, authenticated, loadData])
   useEffect(() => {
     if (!runningTimer) return undefined
     const interval = window.setInterval(() => setElapsed((value) => value + 1), 1000)
@@ -1057,9 +1084,9 @@ function App() {
   }, [runningTimer])
 
   function handleLogin(data) {
-    localStorage.setItem(USER_KEY, data.username)
     setUsername(data.username)
     setAuthenticated(true)
+    setAuthenticationChecked(true)
   }
 
   function projectSaved(project) {
@@ -1160,7 +1187,7 @@ function App() {
             </div>
           )}
         </header>
-        {!authenticated ? <Login onLogin={handleLogin} /> : loading && projects.length === 0 ? <div className="loading-screen"><div className="loader" /><span>Loading your workspace…</span></div> : page === 'dashboard' ? <Dashboard entries={entries} projects={projects} runningTimer={runningTimer} elapsed={elapsed} onResume={resumeTimer} onStop={stopTimer} onDelete={(entry) => setModal({ type: 'delete-entry', entry })} actionEntryId={actionEntryId} /> : page === 'statistics' ? <Statistics projects={projects} entries={entries} runningTimer={runningTimer} elapsed={elapsed} /> : page === 'legacy' ? <Legacy legacyProjects={legacyProjects} onCreate={(provider) => setModal({ type: 'legacy-project', provider })} onEdit={(project) => setModal({ type: 'legacy-project', provider: project.provider, project })} onDelete={(project) => setModal({ type: 'delete-legacy-project', project })} onAddTime={(project) => setModal({ type: 'legacy-time', project })} /> : <Projects projects={projects} onCreate={() => setModal({ type: 'project' })} onEdit={(project) => setModal({ type: 'project', project })} onDelete={(project) => setModal({ type: 'delete-project', project })} onAddTime={(project) => setModal({ type: 'manual-time', project })} />}
+        {!authenticationChecked ? <div className="loading-screen"><div className="loader" /><span>Checking your session…</span></div> : !authenticated ? <Login onLogin={handleLogin} /> : loading && projects.length === 0 ? <div className="loading-screen"><div className="loader" /><span>Loading your workspace…</span></div> : page === 'dashboard' ? <Dashboard entries={entries} projects={projects} runningTimer={runningTimer} elapsed={elapsed} onResume={resumeTimer} onStop={stopTimer} onDelete={(entry) => setModal({ type: 'delete-entry', entry })} actionEntryId={actionEntryId} /> : page === 'statistics' ? <Statistics projects={projects} entries={entries} runningTimer={runningTimer} elapsed={elapsed} /> : page === 'legacy' ? <Legacy legacyProjects={legacyProjects} onCreate={(provider) => setModal({ type: 'legacy-project', provider })} onEdit={(project) => setModal({ type: 'legacy-project', provider: project.provider, project })} onDelete={(project) => setModal({ type: 'delete-legacy-project', project })} onAddTime={(project) => setModal({ type: 'legacy-time', project })} /> : <Projects projects={projects} onCreate={() => setModal({ type: 'project' })} onEdit={(project) => setModal({ type: 'project', project })} onDelete={(project) => setModal({ type: 'delete-project', project })} onAddTime={(project) => setModal({ type: 'manual-time', project })} />}
       </div>
       {modal?.type === 'project' && <ProjectFormModal project={modal.project} onClose={() => setModal(null)} onSaved={projectSaved} />}
       {modal?.type === 'timer' && <TimerModal projects={projects} onClose={() => setModal(null)} onStarted={(timer) => { setRunningTimer(timer); setElapsed(0); void loadData() }} />}

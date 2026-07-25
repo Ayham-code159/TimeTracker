@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -54,5 +55,16 @@ public class AuthController : ControllerBase
                 Path = "/"
             });
         return NoContent();
+    }
+
+    [HttpGet("me")]
+    public IActionResult Me()
+    {
+        var username = User.FindFirstValue(ClaimTypes.Name);
+        return Ok(new
+        {
+            success = true,
+            data = new { username }
+        });
     }
 }
