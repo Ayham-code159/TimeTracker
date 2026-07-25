@@ -1,46 +1,86 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using TimeTracker.Models.Entities;
+using TimeTracker.Security;
 
 namespace TimeTracker.Data;
 
 public static class ApplicationDbSeeder
 {
-    public static async Task SeedDevelopmentUserAsync(
+    public static async Task InitializeAsync(
         IServiceProvider services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         using var scope = services.CreateScope();
         var userManager = scope.ServiceProvider
             .GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider
+            .GetRequiredService<RoleManager<IdentityRole>>();
+        var database = scope.ServiceProvider
+            .GetRequiredService<ApplicationDbContext>();
 
-        var username = configuration["SeedUser:Username"];
-        var password = configuration["SeedUser:Password"];
+        await database.Database.MigrateAsync();
+
+        foreach (var roleName in ApplicationRoles.All)
+        {
+            if (await roleManager.RoleExistsAsync(roleName))
+                continue;
+
+            var roleResult = await roleManager.CreateAsync(
+                new IdentityRole(roleName));
+
+            if (!roleResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Could not create the '{roleName}' role: {FormatErrors(roleResult)}");
+            }
+        }
+
+        var username = configuration["BootstrapAdmin:Username"];
+        var password = configuration["BootstrapAdmin:Password"];
 
         if (string.IsNullOrWhiteSpace(username) ||
             string.IsNullOrWhiteSpace(password))
         {
+            if (!environment.IsDevelopment() &&
+                await userManager.GetUsersInRoleAsync(ApplicationRoles.Admin) is { Count: > 0 })
+                return;
+
             throw new InvalidOperationException(
-                "Development seed-user credentials are missing.");
+                "Admin bootstrap credentials are missing. Set BootstrapAdmin__Username and BootstrapAdmin__Password.");
         }
 
-        if (await userManager.FindByNameAsync(username) is not null)
-            return;
-
-        var user = new ApplicationUser
+        var user = await userManager.FindByNameAsync(username);
+        if (user is null)
         {
-            UserName = username
-        };
+            user = new ApplicationUser
+            {
+                UserName = username
+            };
 
-        var result = await userManager.CreateAsync(user, password);
+            var result = await userManager.CreateAsync(user, password);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Could not create the development seed user: {FormatErrors(result)}");
+            }
+        }
 
-        if (!result.Succeeded)
+        if (!await userManager.IsInRoleAsync(user, ApplicationRoles.Admin))
         {
-            var errors = string.Join(
-                "; ",
-                result.Errors.Select(error => error.Description));
+            var roleResult = await userManager.AddToRoleAsync(
+                user,
+                ApplicationRoles.Admin);
 
-            throw new InvalidOperationException(
-                $"Could not create the development seed user: {errors}");
+            if (!roleResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Could not assign the development seed user to the Admin role: {FormatErrors(roleResult)}");
+            }
         }
     }
+
+    private static string FormatErrors(IdentityResult result) =>
+        string.Join("; ", result.Errors.Select(error => error.Description));
 }

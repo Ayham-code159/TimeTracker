@@ -3,11 +3,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TimeTracker.BusinessLogic.Interfaces;
 using TimeTracker.Models.Dtos.ProjectDtos;
+using TimeTracker.Security;
 
 namespace TimeTracker.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = ApplicationRoles.Admin)]
 [Route("api/projects")]
 public class ProjectController : ControllerBase
 {

@@ -45,15 +45,21 @@ public class AuthService : IAuthService
 
         var user = await _userManager.FindByNameAsync(request.Username.Trim());
 
-        if (user is null ||
-            !await _userManager.CheckPasswordAsync(user, request.Password))
+        if (user is null)
         {
-            return new ApiResponse<LoginResponseDto>
-            {
-                Success = false,
-                Message = "Invalid username or password."
-            };
+            return LoginFailure();
         }
+
+        if (await _userManager.IsLockedOutAsync(user))
+            return LoginFailure();
+
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+        {
+            await _userManager.AccessFailedAsync(user);
+            return LoginFailure();
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
 
         var issuer = GetRequiredSetting("Jwt:Issuer");
         var audience = GetRequiredSetting("Jwt:Audience");
@@ -70,6 +76,9 @@ public class AuthService : IAuthService
             new(JwtRegisteredClaimNames.UniqueName, user.UserName!),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+        var roles = await _userManager.GetRolesAsync(user);
+        claims.AddRange(roles.Select(role =>
+            new Claim(ClaimTypes.Role, role)));
 
         var signingCredentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
@@ -99,4 +108,11 @@ public class AuthService : IAuthService
         _configuration[key]
         ?? throw new InvalidOperationException(
             $"Required configuration value '{key}' was not found.");
+
+    private static ApiResponse<LoginResponseDto> LoginFailure() =>
+        new()
+        {
+            Success = false,
+            Message = "Invalid username or password."
+        };
 }

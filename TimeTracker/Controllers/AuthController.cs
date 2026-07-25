@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using TimeTracker.BusinessLogic.Interfaces;
 using TimeTracker.Models.Dtos.AuthDtos;
 
 namespace TimeTracker.Controllers;
 
 [ApiController]
-[AllowAnonymous]
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
@@ -18,9 +18,41 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login(LoginDto request)
     {
         var response = await _authService.LoginAsync(request);
-        return response.Success ? Ok(response) : Unauthorized(response);
+        if (!response.Success)
+            return Unauthorized(response);
+
+        Response.Cookies.Append(
+            "TimeTrackerAuth",
+            response.Data!.Token,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = response.Data.ExpiresAtUtc,
+                IsEssential = true,
+                Path = "/"
+            });
+
+        return Ok(response);
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete(
+            "TimeTrackerAuth",
+            new CookieOptions
+            {
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = "/"
+            });
+        return NoContent();
     }
 }

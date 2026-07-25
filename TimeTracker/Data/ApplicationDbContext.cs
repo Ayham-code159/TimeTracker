@@ -10,6 +10,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<ManualTimeAdjustment> ManualTimeAdjustments =>
         Set<ManualTimeAdjustment>();
+    public DbSet<LegacyProject> LegacyProjects => Set<LegacyProject>();
 
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
@@ -85,6 +86,29 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             entity.HasOne(adjustment => adjustment.Project)
                 .WithMany(project => project.ManualTimeAdjustments)
                 .HasForeignKey(adjustment => adjustment.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<LegacyProject>(entity =>
+        {
+            entity.Property(project => project.Provider).HasMaxLength(20).IsRequired();
+            entity.Property(project => project.Name).HasMaxLength(100).IsRequired();
+            entity.Property(project => project.NormalizedName).HasMaxLength(100).IsRequired();
+            entity.Property(project => project.Color).HasMaxLength(7).IsRequired();
+            entity.Property(project => project.Description).HasMaxLength(1000);
+            entity.Property(project => project.CreatedAtUtc).IsRequired();
+            entity.Property(project => project.TotalTimeSeconds).IsRequired();
+
+            entity.HasIndex(project => new { project.ApplicationUserId, project.Provider, project.NormalizedName }).IsUnique();
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_LegacyProjects_Provider", "\"Provider\" IN ('Clockify', 'TogglTrack')");
+                table.HasCheckConstraint("CK_LegacyProjects_Color_Hex", "\"Color\" ~ '^#[0-9A-Fa-f]{6}$'");
+                table.HasCheckConstraint("CK_LegacyProjects_TotalTime_NonNegative", "\"TotalTimeSeconds\" >= 0");
+            });
+            entity.HasOne(project => project.ApplicationUser)
+                .WithMany(user => user.LegacyProjects)
+                .HasForeignKey(project => project.ApplicationUserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

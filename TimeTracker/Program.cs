@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -10,28 +11,78 @@ using TimeTracker.BusinessLogic.Services;
 using TimeTracker.Data;
 using TimeTracker.MappingProfiles;
 using TimeTracker.Models.Entities;
+using TimeTracker.Security;
 using TimeTracker.Validators.ProjectValidators;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile(
+    "appsettings.Local.json",
+    optional: true,
+    reloadOnChange: false);
+builder.Configuration.AddEnvironmentVariables();
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+var allowedOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("frontend", policy =>
+    {
+        if (allowedOrigins.Length > 0)
+            policy.WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+    });
+});
+var databaseConnection = builder.Configuration.GetConnectionString(
+    "DefaultConnection");
+if (string.IsNullOrWhiteSpace(databaseConnection))
+    throw new InvalidOperationException(
+        "Database connection is missing. Set ConnectionStrings__DefaultConnection.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(databaseConnection));
 
 builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-var jwtIssuer = builder.Configuration["Jwt:Issuer"]
-    ?? throw new InvalidOperationException("JWT issuer is missing.");
-var jwtAudience = builder.Configuration["Jwt:Audience"]
-    ?? throw new InvalidOperationException("JWT audience is missing.");
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException("JWT signing key is missing.");
+builder.Services.Configure<IdentityOptions>(options =>
+{
+    options.Lockout.AllowedForNewUsers = true;
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+});
+
+builder.Services
+    .AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy("login", context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                }));
+    });
+
+var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var jwtAudience = builder.Configuration["Jwt:Audience"];
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtIssuer))
+    throw new InvalidOperationException("JWT issuer is missing.");
+if (string.IsNullOrWhiteSpace(jwtAudience))
+    throw new InvalidOperationException("JWT audience is missing.");
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+    throw new InvalidOperationException(
+        "JWT signing key must be at least 32 characters.");
 
 builder.Services
     .AddAuthentication(options =>
@@ -43,6 +94,19 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (string.IsNullOrEmpty(context.Token) &&
+                    context.Request.Cookies.TryGetValue(
+                        "TimeTrackerAuth",
+                        out var cookieToken))
+                    context.Token = cookieToken;
+
+                return Task.CompletedTask;
+            }
+        };
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -53,9 +117,21 @@ builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(jwtKey)),
+            RoleClaimType = System.Security.Claims.ClaimTypes.Role,
             ClockSkew = TimeSpan.Zero
         };
     });
+
+builder.Services.AddAuthorization(options =>
+{
+    var adminPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireRole(ApplicationRoles.Admin)
+        .Build();
+
+    options.DefaultPolicy = adminPolicy;
+    options.FallbackPolicy = adminPolicy;
+});
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -82,6 +158,7 @@ builder.Services.AddAutoMapper(configuration =>
 
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ILegacyProjectService, LegacyProjectService>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -127,16 +204,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseCors("frontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-if (app.Environment.IsDevelopment())
-{
-    await ApplicationDbSeeder.SeedDevelopmentUserAsync(
-        app.Services,
-        app.Configuration);
-}
+await ApplicationDbSeeder.InitializeAsync(
+    app.Services,
+    app.Configuration,
+    app.Environment);
 
 app.Run();

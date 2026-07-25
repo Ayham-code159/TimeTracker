@@ -267,44 +267,44 @@ public class ProjectService : IProjectService
             };
         }
 
-        var project = await _context.Projects
-            .Include(item => item.TimeEntries)
-            .Include(item => item.ManualTimeAdjustments)
-            .SingleOrDefaultAsync(item =>
-                item.Id == projectId &&
-                item.ApplicationUserId == userId);
-
-        if (project is null)
-        {
-            return new ApiResponse<ProjectDto>
-            {
-                Success = false,
-                Message = "Project was not found."
-            };
-        }
-
         var secondsToAdd = ((long)request.Hours * 60 + request.Minutes) * 60;
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        var affected = await _context.Projects
+            .Where(project =>
+                project.Id == projectId &&
+                project.ApplicationUserId == userId &&
+                project.ManualTimeSeconds <= long.MaxValue - secondsToAdd)
+            .ExecuteUpdateAsync(update => update.SetProperty(
+                project => project.ManualTimeSeconds,
+                project => project.ManualTimeSeconds + secondsToAdd));
 
-        try
+        if (affected == 0)
         {
-            project.ManualTimeSeconds = checked(project.ManualTimeSeconds + secondsToAdd);
-        }
-        catch (OverflowException)
-        {
+            var exists = await _context.Projects.AnyAsync(project =>
+                project.Id == projectId && project.ApplicationUserId == userId);
             return new ApiResponse<ProjectDto>
             {
                 Success = false,
-                Message = "The manual time total is too large."
+                Message = exists
+                    ? "The manual time total is too large."
+                    : "Project was not found."
             };
         }
 
-        project.ManualTimeAdjustments.Add(new ManualTimeAdjustment
+        _context.ManualTimeAdjustments.Add(new ManualTimeAdjustment
         {
+            ProjectId = projectId,
             DurationSeconds = secondsToAdd,
             AddedAtUtc = DateTime.UtcNow
         });
-
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        var project = await _context.Projects
+            .AsNoTracking()
+            .Include(item => item.TimeEntries)
+            .Include(item => item.ManualTimeAdjustments)
+            .SingleAsync(item => item.Id == projectId && item.ApplicationUserId == userId);
 
         return new ApiResponse<ProjectDto>
         {
@@ -567,15 +567,23 @@ public class ProjectService : IProjectService
         if (runningTimer is not null)
             return TimerFailure($"A timer is already running for project '{runningTimer.Project.Name}'. Stop it before continuing another entry.");
 
-        var timeEntry = await _context.TimeEntries
+        var previousEntry = await _context.TimeEntries
+            .AsNoTracking()
             .Include(x => x.Project)
             .SingleOrDefaultAsync(x => x.Id == timeEntryId && x.ApplicationUserId == userId);
 
-        if (timeEntry is null)
+        if (previousEntry is null)
             return TimerFailure("Time entry was not found.");
 
-        timeEntry.ResumedAtUtc = DateTime.UtcNow;
-        timeEntry.StoppedAtUtc = null;
+        var timeEntry = new TimeEntry
+        {
+            ProjectId = previousEntry.ProjectId,
+            ApplicationUserId = userId,
+            StartedAtUtc = DateTime.UtcNow,
+            Project = previousEntry.Project
+        };
+        _context.Attach(previousEntry.Project);
+        _context.TimeEntries.Add(timeEntry);
 
         try
         {
@@ -583,7 +591,7 @@ public class ProjectService : IProjectService
         }
         catch (DbUpdateException)
         {
-            await _context.Entry(timeEntry).ReloadAsync();
+            _context.Entry(timeEntry).State = EntityState.Detached;
             return TimerFailure("A timer is already running. Stop it before continuing another entry.");
         }
 
@@ -593,7 +601,7 @@ public class ProjectService : IProjectService
             Message = "Time entry continued successfully.",
             Data = _mapper.Map<RunningTimerDto>(timeEntry, options =>
                 options.AfterMap((_, destination) =>
-                    destination.ElapsedSeconds = timeEntry.DurationSeconds ?? 0))
+                    destination.ElapsedSeconds = 0))
         };
     }
 
