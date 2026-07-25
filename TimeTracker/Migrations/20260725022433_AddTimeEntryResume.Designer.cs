@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TimeTracker.Data;
@@ -11,9 +12,11 @@ using TimeTracker.Data;
 namespace TimeTracker.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725022433_AddTimeEntryResume")]
+    partial class AddTimeEntryResume
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -218,33 +221,6 @@ namespace TimeTracker.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
-            modelBuilder.Entity("TimeTracker.Models.Entities.ManualTimeAdjustment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("AddedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("DurationSeconds")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId");
-
-                    b.ToTable("ManualTimeAdjustments", t =>
-                        {
-                            t.HasCheckConstraint("CK_ManualTimeAdjustments_Duration_Positive", "\"DurationSeconds\" > 0");
-                        });
-                });
-
             modelBuilder.Entity("TimeTracker.Models.Entities.Project", b =>
                 {
                     b.Property<int>("Id")
@@ -269,9 +245,6 @@ namespace TimeTracker.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
-                    b.Property<long>("ManualTimeSeconds")
-                        .HasColumnType("bigint");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -290,8 +263,6 @@ namespace TimeTracker.Migrations
                     b.ToTable("Projects", t =>
                         {
                             t.HasCheckConstraint("CK_Projects_Color_Hex", "\"Color\" ~ '^#[0-9A-Fa-f]{6}$'");
-
-                            t.HasCheckConstraint("CK_Projects_ManualTime_NonNegative", "\"ManualTimeSeconds\" >= 0");
                         });
                 });
 
@@ -387,17 +358,6 @@ namespace TimeTracker.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("TimeTracker.Models.Entities.ManualTimeAdjustment", b =>
-                {
-                    b.HasOne("TimeTracker.Models.Entities.Project", "Project")
-                        .WithMany("ManualTimeAdjustments")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("TimeTracker.Models.Entities.Project", b =>
                 {
                     b.HasOne("TimeTracker.Models.Entities.ApplicationUser", "ApplicationUser")
@@ -437,8 +397,6 @@ namespace TimeTracker.Migrations
 
             modelBuilder.Entity("TimeTracker.Models.Entities.Project", b =>
                 {
-                    b.Navigation("ManualTimeAdjustments");
-
                     b.Navigation("TimeEntries");
                 });
 #pragma warning restore 612, 618
