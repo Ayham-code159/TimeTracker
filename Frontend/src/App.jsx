@@ -83,7 +83,7 @@ async function apiRequest(path, options = {}) {
 
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    const error = new Error(payload?.message || 'Something went wrong.')
+    const error = new Error(payload?.message || `Request failed with status ${response.status}.`)
     error.status = response.status
     error.details = payload?.errors || []
     throw error
@@ -1017,7 +1017,7 @@ function App() {
     try {
       await apiRequest('/api/auth/logout', { method: 'POST' })
     } catch {
-      // Local session state must still be cleared if the cookie already expired.
+      // Local session state must still be cleared if the token already expired.
     }
     clearSession()
   }, [clearSession])
@@ -1091,6 +1091,8 @@ function App() {
 
   async function handleLogin(data) {
     try {
+      if (!data?.token || typeof data.token !== 'string')
+        throw new Error('The login response did not include a JWT. Redeploy the Railway API with the latest authentication changes.')
       sessionStorage.setItem(TOKEN_KEY, data.token)
       const response = await apiRequest('/api/auth/me')
       setUsername(response.data.username || '')
@@ -1098,8 +1100,6 @@ function App() {
       setAuthenticationChecked(true)
     } catch (error) {
       clearSession()
-      if (error.status === 401 || error.status === 403)
-        throw new Error('Login succeeded, but the browser blocked the authentication cookie. Allow cross-site cookies or use app and API domains under the same site.', { cause: error })
       throw error
     }
   }
