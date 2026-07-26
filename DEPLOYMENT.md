@@ -15,13 +15,20 @@ BootstrapAdmin__Password=<strong initial administrator password>
 After the first successful start, remove the two `BootstrapAdmin` variables.
 Future starts will accept an existing Admin account.
 
-The Vercel frontend proxies relative `/api/*` requests to Railway using
-`Frontend/vercel.json`. Browser requests and authentication cookies therefore
-remain on the Vercel origin. Do not configure `VITE_API_BASE_URL`; a direct
-Railway URL would bypass the proxy and restore the third-party-cookie problem.
+The frontend sends requests directly to Railway using:
 
-Authentication uses an HttpOnly, Secure, SameSite=Lax cookie. Vercel also sends
-`Cache-Control: no-store, no-cache, must-revalidate` for proxied API responses.
+```text
+VITE_API_BASE_URL=https://timetracker-production-0fdf.up.railway.app
+```
+
+Railway allows credentialed CORS requests from:
+
+```text
+https://time-tracker-lake-delta.vercel.app
+```
+
+Authentication uses an HttpOnly, Secure, SameSite=None cookie. Browsers that
+block third-party cookies may require an explicit site exception.
 
 Local-only credentials belong in `TimeTracker/appsettings.Local.json`. That file
 is ignored by Git and excluded from build and publish output.
