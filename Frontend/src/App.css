@@ -146,6 +146,10 @@ textarea { resize: vertical; min-height: 92px; }
 .color-popover .react-colorful { width: 220px; height: 170px; }
 .color-popover .react-colorful__saturation { border-radius: 8px 8px 0 0; }
 .color-popover .react-colorful__hue { height: 18px; border-radius: 0 0 8px 8px; }
+.hex-color-field { margin-top: 11px; gap: 6px; }
+.hex-color-field input { padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; text-transform: uppercase; }
+.hex-color-field input[aria-invalid="true"] { border-color: rgba(255,111,160,.65); }
+.hex-color-field small { color: #ff9ac7; font-size: 9px; font-weight: 500; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 7px; }
 .timer-project-list { display: grid; gap: 8px; max-height: 340px; overflow: auto; }
 :is(.modal-card, .timer-project-list, .legacy-project-list, .projects-panel, .dashboard-pagination > div, .bar-chart-wrap.dense, .line-chart-wrap.dense) { scrollbar-width: thin; scrollbar-color: rgba(237,79,194,.52) rgba(255,255,255,.035); }

@@ -175,6 +175,43 @@ function Modal({ title, subtitle, children, onClose }) {
   )
 }
 
+function ColorPickerPopover({ color, onChange }) {
+  const [hexValue, setHexValue] = useState(color.toUpperCase())
+  const validHex = /^#[0-9A-F]{6}$/.test(hexValue)
+
+  function updatePicker(colorValue) {
+    setHexValue(colorValue.toUpperCase())
+    onChange(colorValue)
+  }
+
+  function updateHexValue(event) {
+    const value = event.target.value.toUpperCase()
+    setHexValue(value)
+    if (/^#[0-9A-F]{6}$/.test(value)) onChange(value)
+  }
+
+  return (
+    <div className="color-popover">
+      <HexColorPicker color={color} onChange={updatePicker} />
+      <label className="hex-color-field">
+        Hex color
+        <input
+          value={hexValue}
+          onChange={updateHexValue}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.preventDefault()
+          }}
+          maxLength={7}
+          spellCheck="false"
+          aria-invalid={!validHex}
+          placeholder="#EE1C9A"
+        />
+        {!validHex && <small>Enter a color in #RRGGBB format.</small>}
+      </label>
+    </div>
+  )
+}
+
 function ProjectFormModal({ project, onClose, onSaved }) {
   const editing = Boolean(project)
   const [form, setForm] = useState({
@@ -216,9 +253,7 @@ function ProjectFormModal({ project, onClose, onSaved }) {
             <button type="button" className="color-value" onClick={() => setShowPicker(!showPicker)}>{form.color.toUpperCase()}</button>
           </div>
           {showPicker && (
-            <div className="color-popover">
-              <HexColorPicker color={form.color} onChange={(color) => setForm({ ...form, color })} />
-            </div>
+            <ColorPickerPopover color={form.color} onChange={(color) => setForm({ ...form, color })} />
           )}
         </div>
         {error && <div className="form-error">{error}</div>}
@@ -515,7 +550,7 @@ function LegacyProjectModal({ provider, project, onClose, onSaved }) {
             <button type="button" className="color-swatch" style={{ background: form.color }} onClick={() => setShowPicker(!showPicker)} aria-label="Choose project color" />
             <button type="button" className="color-value" onClick={() => setShowPicker(!showPicker)}>{form.color.toUpperCase()}</button>
           </div>
-          {showPicker && <div className="color-popover"><HexColorPicker color={form.color} onChange={(color) => setForm({ ...form, color })} /></div>}
+          {showPicker && <ColorPickerPopover color={form.color} onChange={(color) => setForm({ ...form, color })} />}
         </div>
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={loading}>{loading ? 'Saving…' : editing ? 'Save changes' : 'Add legacy project'}</button></div>
