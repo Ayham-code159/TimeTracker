@@ -5,5 +5,7 @@ namespace TimeTracker.BusinessLogic.Interfaces;
 
 public interface IAuthService
 {
-    Task<ApiResponse<LoginResponseDto>> LoginAsync(LoginDto request);
+    Task<ApiResponse<AuthTokenResult>> LoginAsync(LoginDto request);
+    Task<ApiResponse<AuthTokenResult>> RefreshAsync(string refreshToken);
+    Task RevokeAsync(string refreshToken);
 }

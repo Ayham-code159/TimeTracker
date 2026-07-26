@@ -4,8 +4,9 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, Res
 import './App.css'
 
 const PAGE_SIZE = 10
-const TOKEN_KEY = 'timeTrackerToken'
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+let accessToken = null
+let refreshRequest = null
 
 const icons = {
   dashboard: 'M4 13h6V3H4v10Zm0 8h6v-6H4v6Zm10 0h6V11h-6v10Zm0-18v6h6V3h-6Z',
@@ -70,18 +71,46 @@ function entrySecondsInRange(entry, rangeStart, rangeEnd, runningTimer, elapsed)
   return Math.max(0, Math.floor((overlapEnd - overlapStart) / 1000))
 }
 
+async function refreshAccessToken() {
+  if (!refreshRequest) {
+    refreshRequest = fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !payload?.data?.token) {
+          const error = new Error(payload?.message || 'Your session has expired.')
+          error.status = response.status
+          throw error
+        }
+        accessToken = payload.data.token
+        return payload.data
+      })
+      .finally(() => {
+        refreshRequest = null
+      })
+  }
+  return refreshRequest
+}
+
 async function apiRequest(path, options = {}) {
-  const token = sessionStorage.getItem(TOKEN_KEY)
+  const { skipAuthRefresh = false, ...fetchOptions } = options
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
+    credentials: 'include',
     headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+      ...(fetchOptions.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...fetchOptions.headers,
     },
   })
 
   const payload = await response.json().catch(() => null)
+  if (response.status === 401 && !skipAuthRefresh) {
+    await refreshAccessToken()
+    return apiRequest(path, { ...options, skipAuthRefresh: true })
+  }
   if (!response.ok) {
     const error = new Error(payload?.message || `Request failed with status ${response.status}.`)
     error.status = response.status
@@ -131,6 +160,7 @@ function Login({ onLogin }) {
       const response = await apiRequest('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify(form),
+        skipAuthRefresh: true,
       })
       await onLogin(response.data)
     } catch (requestError) {
@@ -1023,9 +1053,7 @@ function Statistics({ projects, entries, runningTimer, elapsed }) {
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false)
-  const [authenticationChecked, setAuthenticationChecked] = useState(
-    () => !sessionStorage.getItem(TOKEN_KEY),
-  )
+  const [authenticationChecked, setAuthenticationChecked] = useState(false)
   const [username, setUsername] = useState('')
   const [page, setPage] = useState('dashboard')
   const [projects, setProjects] = useState([])
@@ -1049,7 +1077,7 @@ function App() {
   }, [])
 
   const clearSession = useCallback(() => {
-    sessionStorage.removeItem(TOKEN_KEY)
+    accessToken = null
     setAuthenticated(false)
     setUsername('')
     setProjects([])
@@ -1060,7 +1088,10 @@ function App() {
 
   const logout = useCallback(async () => {
     try {
-      await apiRequest('/api/auth/logout', { method: 'POST' })
+      await apiRequest('/api/auth/logout', {
+        method: 'POST',
+        skipAuthRefresh: true,
+      })
     } catch {
       // Local session state must still be cleared if the token already expired.
     }
@@ -1101,12 +1132,12 @@ function App() {
   }, [authenticated, clearSession, synchronizeElapsed])
 
   useEffect(() => {
-    if (!sessionStorage.getItem(TOKEN_KEY)) return undefined
     const controller = new AbortController()
     async function checkAuthentication() {
       try {
-        const response = await apiRequest('/api/auth/me', { signal: controller.signal })
-        setUsername(response.data.username || '')
+        const session = await refreshAccessToken()
+        if (controller.signal.aborted) return
+        setUsername(session.username || '')
         setAuthenticated(true)
       } catch (error) {
         if (error.name !== 'AbortError' && error.status !== 401 && error.status !== 403)
@@ -1158,9 +1189,8 @@ function App() {
     try {
       if (!data?.token || typeof data.token !== 'string')
         throw new Error('The login response did not include a JWT. Redeploy the Railway API with the latest authentication changes.')
-      sessionStorage.setItem(TOKEN_KEY, data.token)
-      const response = await apiRequest('/api/auth/me')
-      setUsername(response.data.username || '')
+      accessToken = data.token
+      setUsername(data.username || '')
       setAuthenticated(true)
       setAuthenticationChecked(true)
     } catch (error) {

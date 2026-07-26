@@ -11,6 +11,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ManualTimeAdjustment> ManualTimeAdjustments =>
         Set<ManualTimeAdjustment>();
     public DbSet<LegacyProject> LegacyProjects => Set<LegacyProject>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
@@ -109,6 +110,33 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             entity.HasOne(project => project.ApplicationUser)
                 .WithMany(user => user.LegacyProjects)
                 .HasForeignKey(project => project.ApplicationUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<RefreshToken>(entity =>
+        {
+            entity.Property(token => token.TokenHash)
+                .HasMaxLength(64)
+                .IsFixedLength()
+                .IsRequired();
+            entity.Property(token => token.SecurityStamp)
+                .HasMaxLength(256)
+                .IsRequired();
+            entity.Property(token => token.CreatedAtUtc).IsRequired();
+            entity.Property(token => token.ExpiresAtUtc).IsRequired();
+            entity.Property(token => token.FamilyExpiresAtUtc).IsRequired();
+            entity.Property(token => token.ReplacedByTokenHash)
+                .HasMaxLength(64)
+                .IsFixedLength();
+            entity.Property(token => token.RevocationReason)
+                .HasMaxLength(100);
+
+            entity.HasIndex(token => token.TokenHash).IsUnique();
+            entity.HasIndex(token => new { token.ApplicationUserId, token.FamilyId });
+
+            entity.HasOne(token => token.ApplicationUser)
+                .WithMany(user => user.RefreshTokens)
+                .HasForeignKey(token => token.ApplicationUserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
