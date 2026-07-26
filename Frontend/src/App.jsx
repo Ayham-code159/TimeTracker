@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HexColorPicker } from 'react-colorful'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import './App.css'
@@ -998,10 +998,20 @@ function App() {
   const [legacyProjects, setLegacyProjects] = useState({ Clockify: [], TogglTrack: [] })
   const [runningTimer, setRunningTimer] = useState(null)
   const [elapsed, setElapsed] = useState(0)
+  const timerBaselineRef = useRef({ elapsedSeconds: 0, synchronizedAt: 0 })
   const [modal, setModal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [actionEntryId, setActionEntryId] = useState(null)
+
+  const synchronizeElapsed = useCallback((elapsedSeconds = 0) => {
+    const normalizedElapsed = Math.max(0, Math.floor(elapsedSeconds))
+    timerBaselineRef.current = {
+      elapsedSeconds: normalizedElapsed,
+      synchronizedAt: Date.now(),
+    }
+    setElapsed(normalizedElapsed)
+  }, [])
 
   const clearSession = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY)
@@ -1040,7 +1050,7 @@ function App() {
         const timerResponse = await apiRequest('/api/projects/timer/running', { signal })
         if (signal?.aborted) return
         setRunningTimer(timerResponse.data)
-        setElapsed(timerResponse.data.elapsedSeconds)
+        synchronizeElapsed(timerResponse.data.elapsedSeconds)
       } catch (error) {
         if (error.name === 'AbortError') return
         if (error.status === 401) throw error
@@ -1053,7 +1063,7 @@ function App() {
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [authenticated, clearSession])
+  }, [authenticated, clearSession, synchronizeElapsed])
 
   useEffect(() => {
     if (!sessionStorage.getItem(TOKEN_KEY)) return undefined
@@ -1085,8 +1095,28 @@ function App() {
   }, [authenticationChecked, authenticated, loadData])
   useEffect(() => {
     if (!runningTimer) return undefined
-    const interval = window.setInterval(() => setElapsed((value) => value + 1), 1000)
-    return () => window.clearInterval(interval)
+
+    const updateElapsed = () => {
+      const { elapsedSeconds, synchronizedAt } = timerBaselineRef.current
+      const secondsSinceSynchronization = Math.max(
+        0,
+        Math.floor((Date.now() - synchronizedAt) / 1000),
+      )
+      setElapsed(elapsedSeconds + secondsSinceSynchronization)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') updateElapsed()
+    }
+
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [runningTimer])
 
   async function handleLogin(data) {
@@ -1124,7 +1154,7 @@ function App() {
     try {
       await apiRequest('/api/projects/timer/stop', { method: 'POST' })
       setRunningTimer(null)
-      setElapsed(0)
+      synchronizeElapsed(0)
       await loadData()
     } catch (error) {
       setNotice(error.message)
@@ -1138,7 +1168,7 @@ function App() {
     try {
       const response = await apiRequest(`/api/projects/time-entries/${timeEntryId}/resume`, { method: 'POST' })
       setRunningTimer(response.data)
-      setElapsed(response.data.elapsedSeconds)
+      synchronizeElapsed(response.data.elapsedSeconds)
       await loadData()
     } catch (error) {
       setNotice(error.message)
@@ -1205,7 +1235,7 @@ function App() {
         {!authenticationChecked ? <div className="loading-screen"><div className="loader" /><span>Checking your session…</span></div> : !authenticated ? <Login onLogin={handleLogin} /> : loading && projects.length === 0 ? <div className="loading-screen"><div className="loader" /><span>Loading your workspace…</span></div> : page === 'dashboard' ? <Dashboard entries={entries} projects={projects} runningTimer={runningTimer} elapsed={elapsed} onResume={resumeTimer} onStop={stopTimer} onDelete={(entry) => setModal({ type: 'delete-entry', entry })} actionEntryId={actionEntryId} /> : page === 'statistics' ? <Statistics projects={projects} entries={entries} runningTimer={runningTimer} elapsed={elapsed} /> : page === 'legacy' ? <Legacy legacyProjects={legacyProjects} onCreate={(provider) => setModal({ type: 'legacy-project', provider })} onEdit={(project) => setModal({ type: 'legacy-project', provider: project.provider, project })} onDelete={(project) => setModal({ type: 'delete-legacy-project', project })} onAddTime={(project) => setModal({ type: 'legacy-time', project })} /> : <Projects projects={projects} onCreate={() => setModal({ type: 'project' })} onEdit={(project) => setModal({ type: 'project', project })} onDelete={(project) => setModal({ type: 'delete-project', project })} onAddTime={(project) => setModal({ type: 'manual-time', project })} />}
       </div>
       {modal?.type === 'project' && <ProjectFormModal project={modal.project} onClose={() => setModal(null)} onSaved={projectSaved} />}
-      {modal?.type === 'timer' && <TimerModal projects={projects} onClose={() => setModal(null)} onStarted={(timer) => { setRunningTimer(timer); setElapsed(0); void loadData() }} />}
+      {modal?.type === 'timer' && <TimerModal projects={projects} onClose={() => setModal(null)} onStarted={(timer) => { setRunningTimer(timer); synchronizeElapsed(timer.elapsedSeconds); void loadData() }} />}
       {modal?.type === 'delete-entry' && <DeleteConfirmationModal title="Delete time entry?" subtitle="This action cannot be undone." color={modal.entry.projectColor} name={modal.entry.projectName} details={`${formatDate(modal.entry.startedAtUtc)} · ${formatDuration(modal.entry.durationSeconds)}`} warning="Are you sure you want to permanently delete this time entry?" confirmLabel="Delete entry" onClose={() => setModal(null)} onConfirm={() => deleteTimeEntry(modal.entry.id)} />}
       {modal?.type === 'delete-project' && <DeleteConfirmationModal title="Delete project?" subtitle="This action cannot be undone." color={modal.project.color} name={modal.project.name} details={modal.project.description || 'No description'} warning="Are you sure? Deleting this project will also permanently delete all of its time entries." confirmLabel="Delete project" onClose={() => setModal(null)} onConfirm={() => deleteProject(modal.project.id)} />}
       {modal?.type === 'manual-time' && <ManualTimeModal project={modal.project} onClose={() => setModal(null)} onSaved={projectSaved} />}
