@@ -27,34 +27,12 @@ public class AuthController : ControllerBase
         if (!response.Success)
             return Unauthorized(response);
 
-        Response.Cookies.Append(
-            "TimeTrackerAuth",
-            response.Data!.Token,
-            new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.None,
-                Expires = response.Data.ExpiresAtUtc,
-                IsEssential = true,
-                Path = "/"
-            });
-
         return Ok(response);
     }
 
     [HttpPost("logout")]
     public IActionResult Logout()
     {
-        Response.Cookies.Delete(
-            "TimeTrackerAuth",
-            new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.None,
-                Path = "/"
-            });
         return NoContent();
     }
 

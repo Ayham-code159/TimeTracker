@@ -27,8 +27,9 @@ Railway allows credentialed CORS requests from:
 https://time-tracker-lake-delta.vercel.app
 ```
 
-Authentication uses an HttpOnly, Secure, SameSite=None cookie. Browsers that
-block third-party cookies may require an explicit site exception.
+Authentication uses the JWT returned by the login endpoint. The frontend stores
+it in tab-scoped `sessionStorage` and sends it in the `Authorization: Bearer`
+header. Closing the browser tab clears the session token.
 
 Local-only credentials belong in `TimeTracker/appsettings.Local.json`. That file
 is ignored by Git and excluded from build and publish output.

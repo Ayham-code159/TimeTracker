@@ -34,8 +34,7 @@ builder.Services.AddCors(options =>
         if (allowedOrigins.Length > 0)
             policy.WithOrigins(allowedOrigins)
                 .AllowAnyHeader()
-                .AllowAnyMethod()
-                .AllowCredentials();
+                .AllowAnyMethod();
     });
 });
 var databaseConnection = builder.Configuration.GetConnectionString(
@@ -94,19 +93,6 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                if (string.IsNullOrEmpty(context.Token) &&
-                    context.Request.Cookies.TryGetValue(
-                        "TimeTrackerAuth",
-                        out var cookieToken))
-                    context.Token = cookieToken;
-
-                return Task.CompletedTask;
-            }
-        };
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,

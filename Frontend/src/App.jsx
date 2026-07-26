@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, Res
 import './App.css'
 
 const PAGE_SIZE = 10
+const TOKEN_KEY = 'timeTrackerToken'
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 const icons = {
@@ -70,11 +71,12 @@ function entrySecondsInRange(entry, rangeStart, rangeEnd, runningTimer, elapsed)
 }
 
 async function apiRequest(path, options = {}) {
+  const token = sessionStorage.getItem(TOKEN_KEY)
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    credentials: 'include',
     ...options,
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   })
@@ -986,7 +988,9 @@ function Statistics({ projects, entries, runningTimer, elapsed }) {
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false)
-  const [authenticationChecked, setAuthenticationChecked] = useState(false)
+  const [authenticationChecked, setAuthenticationChecked] = useState(
+    () => !sessionStorage.getItem(TOKEN_KEY),
+  )
   const [username, setUsername] = useState('')
   const [page, setPage] = useState('dashboard')
   const [projects, setProjects] = useState([])
@@ -1000,6 +1004,7 @@ function App() {
   const [actionEntryId, setActionEntryId] = useState(null)
 
   const clearSession = useCallback(() => {
+    sessionStorage.removeItem(TOKEN_KEY)
     setAuthenticated(false)
     setUsername('')
     setProjects([])
@@ -1051,6 +1056,7 @@ function App() {
   }, [authenticated, clearSession])
 
   useEffect(() => {
+    if (!sessionStorage.getItem(TOKEN_KEY)) return undefined
     const controller = new AbortController()
     async function checkAuthentication() {
       try {
@@ -1083,8 +1089,9 @@ function App() {
     return () => window.clearInterval(interval)
   }, [runningTimer])
 
-  async function handleLogin() {
+  async function handleLogin(data) {
     try {
+      sessionStorage.setItem(TOKEN_KEY, data.token)
       const response = await apiRequest('/api/auth/me')
       setUsername(response.data.username || '')
       setAuthenticated(true)
