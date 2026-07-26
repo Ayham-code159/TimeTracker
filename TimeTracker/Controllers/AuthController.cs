@@ -34,7 +34,7 @@ public class AuthController : ControllerBase
             {
                 HttpOnly = true,
                 Secure = true,
-                SameSite = SameSiteMode.None,
+                SameSite = SameSiteMode.Lax,
                 Expires = response.Data.ExpiresAtUtc,
                 IsEssential = true,
                 Path = "/"
@@ -50,8 +50,9 @@ public class AuthController : ControllerBase
             "TimeTrackerAuth",
             new CookieOptions
             {
+                HttpOnly = true,
                 Secure = true,
-                SameSite = SameSiteMode.None,
+                SameSite = SameSiteMode.Lax,
                 Path = "/"
             });
         return NoContent();

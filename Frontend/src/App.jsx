@@ -4,7 +4,6 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, Res
 import './App.css'
 
 const PAGE_SIZE = 10
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 const icons = {
   dashboard: 'M4 13h6V3H4v10Zm0 8h6v-6H4v6Zm10 0h6V11h-6v10Zm0-18v6h6V3h-6Z',
@@ -70,7 +69,7 @@ function entrySecondsInRange(entry, rangeStart, rangeEnd, runningTimer, elapsed)
 }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(path, {
     credentials: 'include',
     ...options,
     headers: {
