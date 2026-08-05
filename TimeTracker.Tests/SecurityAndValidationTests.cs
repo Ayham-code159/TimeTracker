@@ -24,14 +24,16 @@ public class SecurityAndValidationTests
     }
 
     [Fact]
-    public void OnlyLoginIsAnonymousOnAuthController()
+    public void AuthLifecycleEndpointsAreAnonymousOnAuthController()
     {
         var anonymousActions = typeof(AuthController).GetMethods()
             .Where(method => method.GetCustomAttribute<AllowAnonymousAttribute>() is not null)
             .Select(method => method.Name)
             .ToList();
 
-        Assert.Equal(["Login"], anonymousActions);
+        Assert.Equal(
+            ["Login", "Logout", "Refresh"],
+            anonymousActions.OrderBy(name => name).ToList());
     }
 
     [Fact]

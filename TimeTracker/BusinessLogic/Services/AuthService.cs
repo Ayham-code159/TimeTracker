@@ -93,6 +93,13 @@ public class AuthService : IAuthService
         var now = DateTime.UtcNow;
         if (currentToken.RevokedAtUtc is not null)
         {
+            var concurrentResult = await TryCompleteConcurrentRotationAsync(
+                currentToken,
+                refreshTokenValue,
+                now);
+            if (concurrentResult is not null)
+                return Success(concurrentResult);
+
             if (currentToken.RevocationReason == RotationReason)
                 await RevokeFamilyAsync(currentToken.FamilyId, now, ReuseReason);
 
@@ -129,7 +136,7 @@ public class AuthService : IAuthService
             return Failure("Refresh token is invalid.");
         }
 
-        var nextTokenValue = GenerateRefreshToken();
+        var nextTokenValue = DeriveNextRefreshToken(refreshTokenValue);
         var nextTokenHash = HashToken(nextTokenValue);
 
         await using var transaction = await _database.Database.BeginTransactionAsync();
@@ -145,8 +152,23 @@ public class AuthService : IAuthService
         if (updated != 1)
         {
             await transaction.RollbackAsync();
+            await transaction.DisposeAsync();
             _database.ChangeTracker.Clear();
-            await RevokeFamilyAsync(currentToken.FamilyId, now, ReuseReason);
+
+            var concurrentlyRotatedToken = await _database.RefreshTokens
+                .Include(token => token.ApplicationUser)
+                .SingleAsync(token => token.Id == currentToken.Id);
+            var concurrentResult = await TryCompleteConcurrentRotationAsync(
+                concurrentlyRotatedToken,
+                refreshTokenValue,
+                now);
+            if (concurrentResult is not null)
+                return Success(concurrentResult);
+
+            await RevokeFamilyAsync(
+                concurrentlyRotatedToken.FamilyId,
+                now,
+                ReuseReason);
             return Failure("Refresh token is invalid.");
         }
 
@@ -267,8 +289,57 @@ public class AuthService : IAuthService
                 token.FamilyExpiresAtUtc < now.AddDays(-30))
             .ExecuteDeleteAsync();
 
+    private async Task<AuthTokenResult?> TryCompleteConcurrentRotationAsync(
+        RefreshToken rotatedToken,
+        string presentedTokenValue,
+        DateTime now)
+    {
+        if (rotatedToken.RevocationReason != RotationReason ||
+            rotatedToken.RevokedAtUtc is null ||
+            string.IsNullOrWhiteSpace(rotatedToken.ReplacedByTokenHash))
+            return null;
+
+        var graceSeconds = GetPositiveSetting(
+            "RefreshToken:RotationGraceSeconds",
+            30);
+        if (now - rotatedToken.RevokedAtUtc.Value >
+            TimeSpan.FromSeconds(graceSeconds))
+            return null;
+
+        var replacementTokenValue = DeriveNextRefreshToken(presentedTokenValue);
+        var replacementTokenHash = HashToken(replacementTokenValue);
+        if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(rotatedToken.ReplacedByTokenHash),
+                Convert.FromHexString(replacementTokenHash)))
+            return null;
+
+        var replacementToken = await _database.RefreshTokens
+            .Include(token => token.ApplicationUser)
+            .SingleOrDefaultAsync(token =>
+                token.TokenHash == replacementTokenHash &&
+                token.FamilyId == rotatedToken.FamilyId &&
+                token.RevokedAtUtc == null);
+        if (replacementToken is null ||
+            replacementToken.ExpiresAtUtc <= now ||
+            replacementToken.FamilyExpiresAtUtc <= now)
+            return null;
+
+        return await CreateTokenResultAsync(
+            replacementToken.ApplicationUser,
+            replacementTokenValue,
+            replacementToken.ExpiresAtUtc);
+    }
+
     private static string GenerateRefreshToken() =>
         Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(64));
+
+    private string DeriveNextRefreshToken(string currentToken)
+    {
+        var key = Encoding.UTF8.GetBytes(GetRequiredSetting("Jwt:Key"));
+        var input = Encoding.UTF8.GetBytes(
+            $"TimeTracker.RefreshToken.Rotation.v1:{currentToken}");
+        return Base64UrlEncoder.Encode(HMACSHA512.HashData(key, input));
+    }
 
     private static string HashToken(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

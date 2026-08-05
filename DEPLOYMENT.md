@@ -42,6 +42,7 @@ and a 14-day absolute session lifetime. They can be overridden in production:
 Jwt__ExpirationMinutes=15
 RefreshToken__IdleExpirationDays=7
 RefreshToken__AbsoluteExpirationDays=14
+RefreshToken__RotationGraceSeconds=30
 ```
 
 The Vercel rewrite is important: it keeps the refresh cookie first-party and
@@ -50,8 +51,10 @@ the rewrite destination before deploying the frontend. A custom domain remains
 a good future option, but it is not required by this setup.
 
 Refresh token values are never stored in the database; only SHA-256 hashes are
-persisted. Each refresh rotates the token, reuse of an already-rotated token
-revokes its entire session family, and logout revokes the current family.
+persisted. Each refresh rotates the token. Concurrent refreshes within the short
+rotation grace window receive the same replacement token, while later reuse of
+an already-rotated token revokes its entire session family. Logout revokes the
+current family.
 
 Local-only credentials belong in `TimeTracker/appsettings.Local.json`. That file
 is ignored by Git and excluded from build and publish output.
