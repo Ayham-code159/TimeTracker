@@ -16,8 +16,8 @@ After the first successful start, remove the two `BootstrapAdmin` variables.
 Future starts will accept an existing Admin account.
 
 Vercel proxies same-origin API requests to Railway using the first rewrite in
-`Frontend/vercel.json`. Remove the `VITE_API_BASE_URL` environment variable
-from the production frontend (or set it to an empty value), so requests use:
+`Frontend/vercel.json`. The frontend deliberately uses relative API URLs and
+does not read `VITE_API_BASE_URL`, so requests always use:
 
 ```text
 /api

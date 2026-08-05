@@ -4,7 +4,6 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, Res
 import './App.css'
 
 const PAGE_SIZE = 10
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 let accessToken = null
 let refreshRequest = null
 
@@ -73,7 +72,7 @@ function entrySecondsInRange(entry, rangeStart, rangeEnd, runningTimer, elapsed)
 
 async function refreshAccessToken() {
   if (!refreshRequest) {
-    refreshRequest = fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    refreshRequest = fetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'include',
     })
@@ -96,7 +95,7 @@ async function refreshAccessToken() {
 
 async function apiRequest(path, options = {}) {
   const { skipAuthRefresh = false, ...fetchOptions } = options
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(path, {
     ...fetchOptions,
     credentials: 'include',
     headers: {
